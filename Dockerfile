@@ -13,6 +13,8 @@ RUN usermod -u $USER_UID --non-unique node \
   && usermod -g $USER_GID -d /paperclip node
 
 FROM base AS deps
+ENV JOBS=1
+ENV MAKEFLAGS="-j1"
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY cli/package.json cli/
@@ -49,7 +51,7 @@ COPY packages/plugins/plugin-workspace-diff/package.json packages/plugins/plugin
 COPY patches/ patches/
 COPY scripts/link-plugin-dev-sdk.mjs scripts/
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --child-concurrency=1
 
 FROM base AS rust-toolchain
 WORKDIR /app
@@ -105,7 +107,7 @@ COPY packages/paperclip-runner/rust-toolchain.toml ../
 # The recipe changes only when dependency manifests, the lockfile, or target
 # metadata change. Source edits can reuse this compiled dependency layer.
 COPY --from=runner-plan /tmp/runner-recipe.json /tmp/runner-recipe.json
-RUN cargo chef cook --release --locked --package paperclip-runner-core --bin paperclip-runnerd --recipe-path /tmp/runner-recipe.json \
+RUN cargo chef cook --release --locked -j 1 --package paperclip-runner-core --bin paperclip-runnerd --recipe-path /tmp/runner-recipe.json \
   && find . -mindepth 1 -maxdepth 1 ! -name target -exec rm -rf {} +
 
 FROM runner-deps AS runner-build
@@ -120,7 +122,7 @@ COPY packages/paperclip-runner/protocol ./protocol
 # source copy below so a fresh checkout cannot invalidate unchanged inputs.
 RUN find runner protocol -type f -exec touch -d @0 {} + \
   && touch -d @0 rust-toolchain.toml \
-  && cargo build --release --manifest-path runner/Cargo.toml --locked -p paperclip-runner-core --bin paperclip-runnerd
+  && cargo build --release -j 1 --manifest-path runner/Cargo.toml --locked -p paperclip-runner-core --bin paperclip-runnerd
 
 FROM runner-build AS build
 WORKDIR /app
